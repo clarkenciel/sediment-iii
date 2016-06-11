@@ -1,6 +1,30 @@
 from math import sqrt
 
 
+def nearest_power_of(comp_val, tgt_val):
+    """Find the power of comp_val that is nearest to
+    tgt_val"""
+    result = comp_val  # assume we start as close as possible
+    last_dist = abs(comp_val - tgt_val)
+    power = 2
+    while abs(comp_val ** power - tgt_val) < last_dist:
+        last_dist = abs(comp_val ** power - tgt_val)
+        result = comp_val ** power
+        power += 1
+    return result
+
+
+def iterate_until(pred, f, val):
+    """Produce a list of values that are the result
+    of repeatedly applying f to val, and then the results
+    of that application, until evaluating the predicate with
+    one of these results returns False"""
+    new_coll = [f(val)]
+    while pred(f(new_coll[-1])) is False:
+        new_coll.append(f(new_coll[-1]))
+    return new_coll
+
+
 def clamp(lo_lim, hi_lim, x):
     if x < lo_lim:
         return lo_lim
