@@ -18,11 +18,7 @@ def annealer(temp_f, energy_f, state_gen, accept_p, dist=random):
     return anneal
 
 
-def temp_identity(t):
-    return t
-
-
-def basic_decrease(t):
+def basic_temp(t):
     return 1 - t
 
 

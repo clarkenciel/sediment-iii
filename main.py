@@ -1,10 +1,16 @@
 import comp_math as m
 import anneal as a
-from random import choice, randrange as rr
+import abjad as abj
+from collections import OrderedDict
+from abjad import scoretools as st
+from abjad.tools import pitchtools as pt
+from copy import deepcopy
+from random import choice, random, randrange as rr
 from functools import partial
 from math import log2
 
 
+# helpers
 def note_to_pc(n):
     return n.written_pitch.pitch_class_number
 
@@ -13,13 +19,18 @@ def note_to_dur_pair(n):
     return n.written_duration.pair
 
 
+# meat of the algorithm
 def pc_gen(start, lo_lim, hi_lim):
     cur_pc = start
     clamp = partial(m.clamp, lo_lim, hi_lim)
+    last_add = -11
     while True:
         val = yield cur_pc
         if val is not None:
-            cur_pc = clamp(val + choice([-1, 1]))
+            cur_pc = clamp(val + last_add)
+            last_add = int(last_add * -0.5)
+            if abs(last_add) == 1:
+                last_add = -11
 
 
 def pc_energy(goal_pc, dist_f=m.euclid):
@@ -28,40 +39,92 @@ def pc_energy(goal_pc, dist_f=m.euclid):
     return checker
 
 
-def note_energy(goal_note, dist_f=m.pearson):
-    def checker(note):
-        return dist_f(note, goal_note)
-    return checker
+# generate notes by repeatedly annealing
+# and restarting when we reach stability
+pcs = []
+tmp = []
+anchors = [rr(-24, 24) for _ in range(5)]
+idx = 0
+check_len = 3
+while len(pcs) < 60 * 4 * 4:
+    pc_anneal = a.annealer(temp_f=lambda t: 1 - t,
+                           energy_f=pc_energy(choice(anchors),
+                                              m.pitch_distance),
+                           state_gen=pc_gen(choice(anchors), -24, 24),
+                           accept_p=a.basic_acceptance)
+
+    for pc in pc_anneal(iterations=1000):
+        pcs.append(pc)
+        if len(tmp) == check_len:
+            tmp[idx] = pc
+            idx = (idx + 1) % check_len
+            if m.std_dev(tmp) == 0:
+                pcs = pcs[:-int(check_len/2)]
+                break
+        else:
+            tmp.append(pc)
+
+notes = [st.Note(pc, abj.Duration(int(abs(pc*0.125)) + 1, 16))
+         for pc in pcs]
 
 
-def note_gen(start, lo_lim, hi_lim):
-    cur_note = start
+# build parts
+# TODO: figure out transpositions
+insts = [
+    {
+        'name': 'Clarinet',
+        'range': (-10, 24),
+        'voice': st.Voice(),
+        'transpose': pt.Transposition(2),
+        'clef': 'treble'
+    },
+    {
+        'name': 'Viola',
+        'range': (-12, 24),
+        'voice': st.Voice(),
+        'transpose': None,
+        'clef': 'alto'
+    },
+    {
+        'name': 'Guitar',
+        'range': (-9, 24),
+        'voice': st.Voice(),
+        'transpose': pt.Transposition(12),
+        'clef': 'treble^8'
+    },
+    {
+        'name': 'Bass',
+        'range': (-32, 7),
+        'voice': st.Voice(),
+        'transpose': None,
+        'clef': 'bass'
+    }
+]
 
-    def clamp(note):
-        out = [m.clamp(l, h, x)
-               for x, l, h in zip(note, lo_lim, hi_lim)]
-        return out
+# prep instruments
+for inst in insts:
+    abj.attach(abj.Clef(inst['clef']), inst['voice'])
 
-    while True:
-        val = yield cur_note
-        if val is not None:
-            p, n, d = val
-            cur_note = clamp((p + choice([-1, 1]),
-                              n + choice([-1, 2]),
-                              d ** (log2(d) + choice([-1, 1]))))
+# pack notes
+# TODO intelligent rest packing and note packing
+# TODO intelligent harmonization
+for note in notes:
+    for inst in insts:
+        lo, hi = inst['range']
+        n = deepcopy(note)
+        if n.written_pitch.pitch_number in range(lo, hi):
+            if inst['transpose'] is not None:
+                n.written_pitch = inst['transpose'](n.written_pitch)
+            inst['voice'].append(n)
+        else:
+            inst['voice'].append(abj.Rest(n.written_duration))
 
-pc_anneal = a.annealer(temp_f=lambda t: 1 - t,
-                       energy_f=pc_energy(0),
-                       state_gen=pc_gen(rr(-48, 48), -48, 48),
-                       accept_p=a.basic_acceptance)
+# pack staves
+staves = [st.Staff([deepcopy(inst['voice'])]) for inst in insts]
+for staff in staves:
+    abj.attach(abj.TimeSignature((2, 4)), staff)
 
+# pack score
+score = st.Score(staves)
 
-note_anneal = a.annealer(temp_f=lambda t: (1 - t) * 2,
-                         energy_f=note_energy((0, 4, 1), m.euclid),
-                         state_gen=note_gen((20, 4, 2),
-                                            (-24, 1, 1),
-                                            (24, 14, 8)),
-                         accept_p=a.basic_acceptance)
-
-xs = list(note_anneal(iterations=100))
-print(xs[0], xs[-60:-1])
+abj.show(score)
