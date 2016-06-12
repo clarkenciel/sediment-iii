@@ -36,7 +36,3 @@ def pc_to_dur(pc):
     numer = int(abs(pc*0.125)) + 1
     denom = choice([16])
     return abj.Duration(numer, denom)
-
-
-def merge_rests(dur_size, dur_base, notes):
-    return [deepcopy(n) for n in notes]

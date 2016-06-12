@@ -67,7 +67,7 @@ def pack_instruments(notes, instrument_dicts):
 
 
 def prep_instruments(instrument_dicts):
-    insts = deepcopy(instrument_dicts)
+    insts = instrument_dicts  # deepcopy(instrument_dicts)
     for inst in insts:
         abj.attach(abj.Clef(inst['clef']), inst['voice'])
         inst['voice'].remove_commands.append('Note_heads_engraver')
@@ -77,14 +77,21 @@ def prep_instruments(instrument_dicts):
         set_(inst['voice']).beam_exceptions = scht.SchemeVector()
         set_(inst['voice']).base_moment = scht.SchemeMoment(1, 4)
         set_(inst['voice']).beat_structure = scht.SchemeVector(1, 1)
+        set_(inst['voice']).completion_unit = scht.SchemeMoment(1, 4)
     return insts
+
+
+def merge_rests(time_signature, staff):
+    for shard in abj.mutate(staff[:]).split([time_signature], cyclic=True):
+        abj.mutate(shard).rewrite_meter(time_signature)
 
 
 def apply_techniques(instrument_dict):
     pass
 
 
-def make_staff(ts_tuple, instrument_dict):
-    staff = st.Staff([deepcopy(instrument_dict['voice'])])
+def make_staff(ts_tuple, rewrite_tuple, instrument_dict):
+    staff = st.Staff([instrument_dict['voice']])
+    merge_rests(abj.TimeSignature(rewrite_tuple), staff)
     abj.attach(abj.TimeSignature(ts_tuple), staff)
     return staff
