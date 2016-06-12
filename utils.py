@@ -1,38 +1,79 @@
 import abjad as abj
 from abjad import scoretools as st
 from copy import deepcopy
-from random import choice
-
-
-def smart_breaks(dur_size, dur_base, notes):
-    expanded_notes = []
-    thunk_base = dur_base
-    thunk_size = abj.Duration(dur_size, thunk_base)  # each thunk is 4 16ths
-    running_thunk_count = abj.Duration(0, thunk_base)
-    for note in notes:
-        n = deepcopy(note)
-        n_dur = note.written_duration
-        check_sum = running_thunk_count + float(n_dur)
-        if check_sum < float(thunk_size):
-            expanded_notes.append(n)
-            running_thunk_count += n_dur
-        elif check_sum == float(thunk_size):
-            expanded_notes.append(n)
-            running_thunk_count = abj.Duration(0, thunk_base)
-        else:
-            # overflow part
-            sub_two = (running_thunk_count + n_dur) - thunk_size
-            # primary part
-            sub_one = n_dur - sub_two
-            sub_n_one = st.Note(n.written_pitch, sub_one)
-            sub_n_two = st.Note(n.written_pitch, sub_two)
-            expanded_notes.append(sub_n_one)
-            expanded_notes.append(sub_n_two)
-            running_thunk_count = sub_two
-    return expanded_notes
+from random import choice, randrange as rr
+from contextlib import contextmanager
+from comp_math import clamp
 
 
 def pc_to_dur(pc):
     numer = int(abs(pc*0.125)) + 1
     denom = choice([16])
     return abj.Duration(numer, denom)
+
+
+def match(pred, coll):
+    for item in coll:
+        if pred(item):
+            return True
+    return False
+
+
+def gcd(x, y):
+    while y != 0:
+        (x, y) = (y, x % y)
+    return x
+
+
+def gen_equal_partitions(dur, num_parts):
+    div = gcd(dur, num_parts)
+    return [dur / div for _ in range(div)]
+
+
+def partition_equally(num_parts, coll):
+    step = len(coll)/num_parts
+    return [coll[n:int((n + 1) * step)] for n in range(num_parts)]
+
+
+def vary(start_note, n_gens):
+    interval = rr(-2, 2)
+    pitch = start_note.written_pitch.pitch_number
+    dur = start_note.written_duration
+    for _ in range(n_gens):
+        yield abj.Note(pitch, dur)
+        interval = clamp(-12, 12, interval + choice([-1, 1]))
+        pitch = pitch + interval
+
+
+def multiply_by(n, note):
+    new_n = deepcopy(note)
+    new_n.written_duration /= 2
+    tup = abj.Tuplet(abj.Multiplier(1, n), [])
+    for varied_note in vary(new_n, n):
+        tup.append(varied_note)
+    return tup
+
+
+def get_dur(note_or_tuple):
+    if type(note_or_tuple) != abj.Tuplet:
+        return float(note_or_tuple.written_duration)
+    else:
+        return float(note_or_tuple.multiplied_duration)
+
+
+def take_beats(num, source):
+    beat_count = 0
+    result = source.__class__()
+    for note_or_tuple in source:
+        dur = get_dur(note_or_tuple)
+        if beat_count + dur == num:
+            result.append(deepcopy(note_or_tuple))
+            return result
+        elif beat_count + dur > num:
+            diff = (beat_count + dur) - num
+            result.append(abj.Rest(diff))
+            return result
+        else:
+            result.append(deepcopy(note_or_tuple))
+            beat_count += dur
+    return result

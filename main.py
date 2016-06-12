@@ -1,16 +1,18 @@
+import os
 import comp_math as m
 import anneal as a
-import abjad as abj
 import instruments
 import utils as u
+from datetime import datetime
 from abjad import scoretools as st
 from copy import deepcopy
-from random import choice, randrange as rr
+from random import random, choice, randrange as rr
 from functools import partial
 from multiprocessing import Pool
+from math import ceil
 
 
-# meat of the algorithm
+# pitch class state generator
 def pc_gen(start, lo_lim, hi_lim):
     cur_pc = start
     clamp = partial(m.clamp, lo_lim, hi_lim)
@@ -24,62 +26,71 @@ def pc_gen(start, lo_lim, hi_lim):
                 last_add = -11
 
 
+# pitch class energy generator
 def pc_energy(goal_pc, dist_f=m.euclid):
     def checker(pc):
         return dist_f([pc], [goal_pc])
     return checker
 
 
-def collect_pcs(num_pcs, iterations, check_len, anchors, pitch_range):
+# generate notes by repeatedly annealing
+# and restarting when we reach stability
+def collect_pcs(annealer, num_pcs, iterations, num_stable):
     pcs = []
     tmp = []
     idx = 0
     pc_count = 0
+    stab_count = 1
     while pc_count < num_pcs:
-        pc_anneal = a.annealer(temp_f=lambda t: 1 - t,
-                               energy_f=pc_energy(choice(anchors),
-                                                  m.pitch_distance),
-                               state_gen=pc_gen(choice(anchors),
-                                                pitch_range[0],
-                                                pitch_range[1]),
-                               accept_p=a.basic_acceptance)
         bucket = []
-        for pc in pc_anneal(iterations=iterations):
+        stab_count = num_stable if stab_count >= num_stable else stab_count + 1
+        for pc in annealer(iterations=iterations):
             bucket.append(pc)
             pc_count += 1
-            if len(tmp) == check_len:
+            if len(tmp) == stab_count:
                 tmp[idx] = pc
-                idx = (idx + 1) % check_len
+                idx = (idx + 1) % stab_count
                 if m.std_dev(tmp) == 0:
-                    pcs.append(bucket[:-int(check_len/2)])
-                    pc_count -= int(check_len/2)
+                    pcs.append(bucket[:-int(stab_count/2)])
+                    pc_count -= int(stab_count/2)
                     break
             else:
                 tmp.append(pc)
     return pcs
 
+# generate our pitches
+anchor_pitches = [rr(-12, 12) for _ in range(5)]
+pitch_range = (-24, 18)
+pc_anneal = a.annealer(temp_f=lambda t: 1 - t,
+                       energy_f=pc_energy(choice(anchor_pitches),
+                                          m.pitch_distance),
+                       state_gen=pc_gen(choice(anchor_pitches),
+                                        pitch_range[0],
+                                        pitch_range[1]),
+                       accept_p=a.basic_acceptance)
 
-# generate notes by repeatedly annealing
-# and restarting when we reach stability
-pcs = collect_pcs(120 * 4, 100, 5,
-                  [rr(-12, 12) for _ in range(5)],
-                  (-24, 24))
+pcs = collect_pcs(pc_anneal, 60, 100, 10)
 print("pitches collected")
 
-# make notes
-bucket_durs = float(sum([sum([u.pc_to_dur(pc) for pc in bucket])
-                         for bucket in pcs]))
-print(bucket_durs)
+# get our durations
+gcd = u.gcd(60, len(pcs))
+flat_pcs = [p for pc_b in pcs for p in pc_b]
+bucket_durs = u.gen_equal_partitions(60, len(pcs))
+pcs = u.partition_equally(gcd, flat_pcs)
+pos_pcs = [[((pc % 12) + 1.0) / 24.0 for pc in pc_b]
+           for pc_b in pcs]
+durs = [[(ceil(pc * (dur / sum(pc_b))), 8) for pc in pc_b]
+        for pc_b, dur in zip(pos_pcs, bucket_durs)]
+print("durations generated")
 
-notes = [st.Note(pc, deepcopy(u.pc_to_dur(pc)))
-         for bucket in pcs
-         for pc in bucket]
+# generate notes
+notes_prime = [deepcopy(note)
+               for pc_coll, dur_coll in zip(pcs, durs)
+               for note in list(st.make_notes(pc_coll, dur_coll))]
+notes = [u.multiply_by(choice([3]), n)
+         if abs(random() - random()) < 0.2 else n
+         for n in notes_prime]
 print("notes generated")
-
-# intelligently split notes
-# notes = u.smart_breaks(4, 16, notes)
-# print("breaks generated")
-
 
 # build parts
 # TODO: figure out transpositions
@@ -88,7 +99,6 @@ insts = instruments.get_instrument_dicts(
 print("instruments gotten")
 
 # pack notes
-# TODO intelligent rest packing and note packing
 # TODO intelligent harmonization
 insts = instruments.pack_instruments(notes, insts)
 print("voices packed")
@@ -100,11 +110,14 @@ print("instruments prepped")
 
 # pack staves
 maker_pool = Pool(len(insts))
-maker = partial(instruments.make_staff, (2, 4), (1, 4))
-staves = maker_pool.map(maker, insts)
-print("staves generated")
+maker = partial(instruments.gen_ly, os.curdir + '/' + str(datetime.now()),
+                (2, 4), (1, 4), anchor_pitches)
+print("generating staves")
+maker_pool.map(maker, insts)
+
 
 # pack score
-score = st.Score(staves)
+#score = st.Score()
 
-abj.show(score)
+# lyfile = lyft.make_basic_lilypond_file(st.Score(page))
+
