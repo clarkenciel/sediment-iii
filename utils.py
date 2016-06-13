@@ -47,8 +47,8 @@ def vary(start_note, n_gens):
 
 def multiply_by(n, note):
     new_n = deepcopy(note)
-    new_n.written_duration /= 2
-    tup = abj.Tuplet(abj.Multiplier(1, n), [])
+    new_n.written_duration /= 4
+    tup = abj.Tuplet(abj.Multiplier(2, n), [])
     for varied_note in vary(new_n, n):
         tup.append(varied_note)
     return tup

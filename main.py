@@ -1,4 +1,5 @@
 import os
+import subprocess
 import comp_math as m
 import anneal as a
 import instruments
@@ -88,7 +89,8 @@ notes_prime = [deepcopy(note)
                for pc_coll, dur_coll in zip(pcs, durs)
                for note in list(st.make_notes(pc_coll, dur_coll))]
 notes = [u.multiply_by(choice([3]), n)
-         if abs(random() - random()) < 0.2 else n
+         if abs(random() - random()) < 0.2 and n.written_duration >= 0.125
+         else n
          for n in notes_prime]
 print("notes generated")
 
@@ -110,14 +112,15 @@ print("instruments prepped")
 
 # pack staves
 maker_pool = Pool(len(insts))
-maker = partial(instruments.gen_ly, os.curdir + '/' + str(datetime.now()),
-                (2, 4), (1, 4), anchor_pitches)
+direc = os.curdir + '/' + str(datetime.now())
+take_amt = choice([10])
+maker = partial(instruments.gen_ly, direc,
+                take_amt, (2, 4), (1, 4), anchor_pitches)
 print("generating staves")
 maker_pool.map(maker, insts)
 
-
-# pack score
-#score = st.Score()
-
-# lyfile = lyft.make_basic_lilypond_file(st.Score(page))
-
+os.chdir(direc)
+subprocess.call(['pdfunite'] +
+                [inst['name'] + '_drone.pdf' for inst in insts] +
+                [inst['name'] + '_main.pdf' for inst in insts] +
+                ['score.pdf'])

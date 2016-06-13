@@ -7,6 +7,7 @@ from abjad.tools import pitchtools as pt
 from abjad.tools import schemetools as scht
 from abjad.tools.topleveltools import set_
 from abjad.tools import lilypondfiletools as lyft
+from random import choice
 from copy import deepcopy
 from contextlib import contextmanager
 
@@ -27,7 +28,7 @@ def get_instrument_dicts(*instrument_names):
     inst_list = [
         {
             'name': 'Clarinet',
-            'range': range_tuple("d", "c'''"),
+            'range': range_tuple("e", "c'''"),
             'voice': st.Voice(),
             'transpose': pt.Transposition(2),
             'clef': 'treble'
@@ -142,11 +143,11 @@ def apply_techniques(instrument_dict):
     pass
 
 
-def make_main_staff(ts_tuple, rewrite_tuple, instrument_dict):
+def make_main_staff(take_amt, ts_tuple, rewrite_tuple, instrument_dict):
     tmp = st.Staff([instrument_dict['voice']])
     merge_rests(abj.TimeSignature(rewrite_tuple), tmp)
     staff = abj.Staff()
-    for x in tmp[:30]:
+    for x in tmp[:take_amt]:
         staff.append(deepcopy(x))
     print(instrument_dict['name'])
     print(len(staff))
@@ -159,16 +160,16 @@ def make_main_staff(ts_tuple, rewrite_tuple, instrument_dict):
 def make_drone_staff(anchor_tones, instrument_dict):
     staff = abj.Staff()
     for tone in anchor_tones:
-        m = abj.Measure((1, 1), [abj.Note(tone, abj.Duration(1, 1))])
-        tlt.override(staff).time_signature.stencile = False
+        m = abj.Measure((1, 1), [abj.Note(tone % 12, abj.Duration(1, 1))])
+        tlt.override(staff).time_signature.stencil = False
         staff.append(m)
         staff.append(m)
     return staff
 
 
 def make_page(direc, main_staff, drone_staff, inst):
-    mfn = direc + '/' + inst['name'] + '_main.ly'
-    dfn = direc + '/' + inst['name'] + '_drone.ly'
+    mfn = inst['name'] + '_main.ly'
+    dfn = inst['name'] + '_drone.ly'
 
     main_group = st.StaffGroup([main_staff])
     drone_group = st.StaffGroup([drone_staff])
@@ -187,15 +188,17 @@ def make_page(direc, main_staff, drone_staff, inst):
     df = lyft.make_basic_lilypond_file(score2)
 
     for fn, lf in zip([mfn, dfn], [mf, df]):
-        with open(fn, 'w+') as f:
+        lf.header_block.composer = "Danny Clarke"
+        lf.header_block.instrument = scht.Scheme(inst['name'], quoting="'")
+        with open(direc + '/' + fn, 'w+') as f:
             f.write(format(lf))
     return mfn, dfn
 
 
-def gen_ly(direc, ts_tuple, rewrite_tuple, anchor_tones, inst):
+def gen_ly(direc, take_amt, ts_tuple, rewrite_tuple, anchor_tones, inst):
     if not os.path.isdir(direc):
         os.makedirs(direc)
-    main_staff = make_main_staff(ts_tuple, rewrite_tuple, inst)
+    main_staff = make_main_staff(take_amt, ts_tuple, rewrite_tuple, inst)
     drone_staff = make_drone_staff(anchor_tones, inst)
     mfn, dfn = make_page(direc, main_staff, drone_staff, inst)
     os.chdir(direc)
